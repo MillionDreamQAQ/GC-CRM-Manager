@@ -6,6 +6,7 @@ import SourceBadge from "./SourceBadge.vue";
 import OpportunityStatus from "./OpportunityStatus.vue";
 import AccountEntitlement from "./AccountEntitlement.vue";
 import { crmApi, localDateValue, sourceKey, sourceName, sourceSubtitle } from "@/lib/crm";
+import { matchesSourceQuery } from "@/lib/source-search";
 
 const props = defineProps({
   sources: { type: Array, required: true },
@@ -26,13 +27,9 @@ const pending = ref(null);
 const form = reactive({ subject: "", description: "", actual_end: localDateValue() });
 
 const filteredSources = computed(() => {
-  const needle = query.value.trim().toLocaleLowerCase("zh-CN");
   return props.sources.filter((item) => {
     const matchesType = type.value === "all" || item.type === type.value;
-    const haystack = [item.name, item.customer, item.opportunity, item.opportunity_status, item.owner]
-      .join(" ")
-      .toLocaleLowerCase("zh-CN");
-    return matchesType && (!needle || haystack.includes(needle));
+    return matchesType && matchesSourceQuery(item, query.value);
   });
 });
 
@@ -108,7 +105,7 @@ async function createIncident() {
       </div>
 
       <div class="source-tools">
-        <el-input v-model="query" :prefix-icon="Search" clearable placeholder="搜索名称、客户或商机" />
+        <el-input v-model="query" :prefix-icon="Search" clearable placeholder="搜索名称、拼音或首字母" />
         <div class="filter-row">
           <label>类型
             <el-select v-model="type">

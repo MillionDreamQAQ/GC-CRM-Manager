@@ -6,6 +6,7 @@ import SourceBadge from "./SourceBadge.vue";
 import OpportunityStatus from "./OpportunityStatus.vue";
 import AccountEntitlement from "./AccountEntitlement.vue";
 import { sourceKey, sourceName, sourceSubtitle } from "@/lib/crm";
+import { matchesSourceQuery } from "@/lib/source-search";
 
 const props = defineProps({
   modelValue: { type: Boolean, required: true },
@@ -22,12 +23,9 @@ const selectedKeys = ref([]);
 const existing = computed(() => new Set(props.existingKeys));
 
 const filteredSources = computed(() => {
-  const needle = query.value.trim().toLocaleLowerCase("zh-CN");
   return props.sources.filter((source) => {
-    const haystack = [source.name, source.customer, source.opportunity, source.opportunity_status]
-      .join(" ")
-      .toLocaleLowerCase("zh-CN");
-    return (type.value === "all" || source.type === type.value) && (!needle || haystack.includes(needle));
+    const matchesType = type.value === "all" || source.type === type.value;
+    return matchesType && matchesSourceQuery(source, query.value);
   });
 });
 
@@ -72,7 +70,7 @@ function updateSelection(key, checked) {
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div class="picker-tools">
-      <el-input v-model="query" :prefix-icon="Search" clearable placeholder="搜索名称、客户或商机" />
+      <el-input v-model="query" :prefix-icon="Search" clearable placeholder="搜索名称、拼音或首字母" />
       <label class="picker-filter type-filter">
         <span>类型</span>
         <el-select v-model="type">

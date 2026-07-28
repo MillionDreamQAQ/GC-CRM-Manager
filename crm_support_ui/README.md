@@ -1,6 +1,6 @@
 # CRM Support Case UI
 
-本地 B/S 应用。FastAPI 提供 Dataverse API、Azure CLI 身份验证和 SQLite 批量任务，前端使用 Vite、Vue 3、Element Plus 与 SortableJS。
+本地 B/S 应用。FastAPI 提供 Dataverse API、Azure CLI 身份验证和 SQLite 批量任务，前端使用 Vite、Vue 3、Element Plus、SortableJS 与 pinyin-pro。
 
 ## 目录
 
@@ -44,6 +44,13 @@ npm.cmd run build
 ```
 
 构建结果写入 `crm_support_ui/static`。
+
+前端测试：
+
+```powershell
+cd crm_support_ui\frontend
+npm.cmd test
+```
 
 ## 测试
 
