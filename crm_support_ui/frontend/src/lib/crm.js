@@ -89,3 +89,11 @@ export function newRowKey() {
 export function rowIsEditable(row) {
   return !["queued", "running", "succeeded"].includes(row.status);
 }
+
+export function rowIsRemovable(row) {
+  return !["queued", "running"].includes(row.status);
+}
+
+export function removeSucceededRows(rows) {
+  return rows.filter((row) => row.status !== "succeeded");
+}

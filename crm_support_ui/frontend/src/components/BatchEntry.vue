@@ -1,6 +1,6 @@
 <script setup>
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ElMessage, ElNotification } from "element-plus";
+import { ElMessage, ElMessageBox, ElNotification } from "element-plus";
 import { CopyDocument, Delete, Link, Plus, Rank, RefreshLeft, Upload } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import SourceBadge from "./SourceBadge.vue";
@@ -17,7 +17,9 @@ import {
   localDateValue,
   newRowKey,
   normalizeDate,
+  removeSucceededRows,
   rowIsEditable,
+  rowIsRemovable,
   sourceKey,
   sourceName,
   sourceSubtitle,
@@ -75,6 +77,7 @@ const editableRows = computed(() => batchRows.value.filter(rowIsEditable));
 const validRows = computed(() => editableRows.value.filter((row) => row.subject.trim() && isValidDateValue(row.actual_end)));
 const incompleteCount = computed(() => editableRows.value.length - validRows.value.length);
 const failedRows = computed(() => batchRows.value.filter((row) => row.status === "failed"));
+const succeededRows = computed(() => batchRows.value.filter((row) => row.status === "succeeded"));
 const existingSourceKeys = computed(() => [...new Set(batchRows.value.map((row) => sourceKey(row.source)))]);
 const createLabel = computed(() => (
   validRows.value.length ? `创建 ${validRows.value.length} 条有效记录` : "创建批量记录"
@@ -153,8 +156,24 @@ function duplicateRow(row) {
 }
 
 function removeRow(row) {
-  if (!rowIsEditable(row)) return;
+  if (!rowIsRemovable(row)) return;
   batchRows.value.splice(batchRows.value.indexOf(row), 1);
+}
+
+async function clearSucceededRows() {
+  if (!succeededRows.value.length || activeBatchJob.value) return;
+  try {
+    await ElMessageBox.confirm(
+      `将从本地列表移除 ${succeededRows.value.length} 条已创建记录，不会删除 CRM 中的案例。`,
+      "清理已创建记录？",
+      { confirmButtonText: "确认清理", cancelButtonText: "取消", type: "warning" },
+    );
+  } catch {
+    return;
+  }
+  batchRows.value = removeSucceededRows(batchRows.value);
+  lastPasteSnapshot.value = null;
+  ElMessage.success("已从列表移除成功记录");
 }
 
 function openDescription(row) {
@@ -367,6 +386,13 @@ onBeforeUnmount(() => {
       <div class="batch-toolbar">
         <label><span>默认日期</span><el-date-picker v-model="defaultDate" type="date" value-format="YYYY-MM-DD" /></label>
         <el-button link type="primary" @click="applyDefaultDate">应用到未创建项</el-button>
+        <el-button
+          v-if="succeededRows.length && !activeBatchJob"
+          link
+          type="danger"
+          :icon="Delete"
+          @click="clearSucceededRows"
+        >清理已创建（{{ succeededRows.length }}）</el-button>
         <span class="batch-count">{{ batchRows.length ? `${batchRows.length} 条记录` : "尚未选择记录" }}</span>
         <span class="draft-state">{{ draftState }}</span>
       </div>
@@ -467,7 +493,7 @@ onBeforeUnmount(() => {
                     circle
                     text
                     type="danger"
-                    :disabled="!rowIsEditable(scope.row)"
+                    :disabled="!rowIsRemovable(scope.row)"
                     aria-label="移除此行"
                     @click="removeRow(scope.row)"
                   />
