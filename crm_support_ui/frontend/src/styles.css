@@ -52,7 +52,7 @@ h2 { letter-spacing: 0; }
 .mode-switcher.el-segmented { --el-segmented-item-selected-bg-color: white; --el-segmented-item-selected-color: #173e31; --el-segmented-bg-color: rgb(0 0 0 / 14%); height: 40px; padding: 3px; border: 1px solid rgb(255 255 255 / 20%); color: #c6d9d0; }
 .mode-switcher .el-segmented__item { min-width: 102px; font-size: 12px; font-weight: 700; }
 .mode-switcher .el-segmented__item:hover { color: white; }
-.mode-switcher .el-segmented__item-selected:hover { color: #173e31; }
+.mode-switcher .el-segmented__item.is-selected:hover { color: var(--el-segmented-item-selected-color); }
 
 .single-workspace {
   width: min(1240px, calc(100% - 40px));
