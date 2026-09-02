@@ -59,7 +59,7 @@ h2 { letter-spacing: 0; }
   margin: 20px auto 32px;
 }
 .single-workspace {
-  width: min(1240px, calc(100% - 40px));
+  width: 100%;
   height: calc(100vh - 134px);
   min-height: 520px;
   margin: 0 auto;

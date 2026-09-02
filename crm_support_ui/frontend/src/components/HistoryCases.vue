@@ -36,6 +36,7 @@ function formatSourceType(item) {
 }
 
 function sourceDetail(item) {
+  if (!item.source_type) return "未关联对象";
   return sourceSubtitle({
     type: item.source_type,
     customer: item.customer,
@@ -107,11 +108,6 @@ onMounted(loadCases);
         row-key="id"
         empty-text="没有找到匹配的历史案例"
       >
-        <el-table-column label="主题" min-width="230">
-          <template #default="{ row }">
-            <strong class="history-subject">{{ row.subject || "（无主题）" }}</strong>
-          </template>
-        </el-table-column>
         <el-table-column label="关联对象" min-width="250">
           <template #default="{ row }">
             <div class="history-source">
@@ -121,6 +117,11 @@ onMounted(loadCases);
                 <small>{{ formatSourceType(row) }} · {{ sourceDetail(row) }}</small>
               </div>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="主题" min-width="230">
+          <template #default="{ row }">
+            <strong class="history-subject">{{ row.subject || "（无主题）" }}</strong>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="说明" min-width="330" show-overflow-tooltip />
