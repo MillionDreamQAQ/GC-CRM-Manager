@@ -6,7 +6,7 @@
 
 - `app.py`：FastAPI 应用与 HTTP 接口
 - `dataverse_client.py`：Azure CLI 令牌、Dataverse HTTP 客户端与日期规范化
-- `dataverse_gateway.py`：客户/商机来源查询、权利聚合和案例创建
+- `dataverse_gateway.py`：客户/商机来源查询、权利聚合、历史案例查询和案例创建
 - `batch_jobs.py`：SQLite 批量任务与后台执行
 - `launcher.py`：Windows 本地启动器
 - `frontend/`：Vue 前端源码
@@ -63,6 +63,8 @@ python -m unittest tests.test_crm_support_ui
 ```powershell
 python -m unittest work.test_crm_support_ui
 ```
+
+历史案例接口为 `GET /api/incidents?limit=500`，只返回当前 Azure CLI 用户创建的技术支持案例。
 
 ## 配置
 

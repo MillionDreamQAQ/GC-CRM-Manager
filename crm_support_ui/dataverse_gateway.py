@@ -305,6 +305,129 @@ class DataverseGateway:
             actual_end=actual_end,
         )
 
+    def list_incidents(self, limit: int = 500) -> dict:
+        if not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("Incident history limit must be between 1 and 500")
+
+        client = self._client_factory()
+        who_am_i = client.get("WhoAmI")
+        user_id = str(uuid.UUID(who_am_i["UserId"]))
+        user_row = client.get(
+            f"systemusers({user_id})",
+            {"$select": "fullname,domainname"},
+        )
+        metadata = client.get_entity(INCIDENT_ENTITY)
+        selected = [
+            metadata["PrimaryIdAttribute"],
+            "subject",
+            "description",
+            "actualend",
+            "createdon",
+            "modifiedon",
+            "_createdby_value",
+            "_gc_account_value",
+            "_gc_accounttechsupport_value",
+            "_gc_opportunity_value",
+            "_gc_opportunitytechsupport_value",
+            "_regardingobjectid_value",
+        ]
+        params: dict[str, str] | None = {
+            "$select": ",".join(dict.fromkeys(selected)),
+            "$filter": f"_createdby_value eq {user_id}",
+            "$orderby": "createdon desc",
+            "$top": str(limit),
+        }
+        path: str | None = metadata["EntitySetName"]
+        items: list[dict] = []
+        while path and len(items) < limit:
+            page = client.get(path, params)
+            for row in page.get("value", []):
+                if len(items) >= limit:
+                    break
+                incident_id = str(row[metadata["PrimaryIdAttribute"]])
+                account_support_id = _normalized_lookup_id(
+                    row, "gc_accounttechsupport"
+                )
+                opportunity_support_id = _normalized_lookup_id(
+                    row, "gc_opportunitytechsupport"
+                )
+                if opportunity_support_id:
+                    source_type = "opportunity"
+                    source_entity = "gc_opportunitytechsupport"
+                    source_id = opportunity_support_id
+                    source_name = self._formatted(
+                        row, "gc_opportunitytechsupport"
+                    )
+                elif account_support_id:
+                    source_type = "account"
+                    source_entity = "gc_accounttechsupport"
+                    source_id = account_support_id
+                    source_name = self._formatted(row, "gc_accounttechsupport")
+                else:
+                    source_type = ""
+                    source_entity = ""
+                    source_id = ""
+                    source_name = self._formatted(row, "regardingobjectid")
+
+                items.append(
+                    {
+                        "id": incident_id,
+                        "subject": str(row.get("subject") or ""),
+                        "description": str(row.get("description") or ""),
+                        "actual_end": str(
+                            row.get(f"actualend{FORMATTED_VALUE}")
+                            or row.get("actualend")
+                            or ""
+                        ),
+                        "created_on": str(
+                            row.get(f"createdon{FORMATTED_VALUE}")
+                            or row.get("createdon")
+                            or ""
+                        ),
+                        "modified_on": str(
+                            row.get(f"modifiedon{FORMATTED_VALUE}")
+                            or row.get("modifiedon")
+                            or ""
+                        ),
+                        "source_type": source_type,
+                        "source_entity": source_entity,
+                        "source_id": source_id,
+                        "source_name": source_name,
+                        "customer": self._formatted(row, "gc_account"),
+                        "opportunity": self._formatted(row, "gc_opportunity"),
+                        "owner": self._formatted(row, "createdby")
+                        or self._formatted(row, "ownerid"),
+                        "url": self._record_url(
+                            client.environment,
+                            self._app_id,
+                            INCIDENT_ENTITY,
+                            incident_id,
+                        ),
+                        "source_url": (
+                            self._record_url(
+                                client.environment,
+                                SOURCE_APP_IDS[source_entity],
+                                source_entity,
+                                source_id,
+                            )
+                            if source_entity and source_id
+                            else ""
+                        ),
+                    }
+                )
+            path = page.get("@odata.nextLink")
+            params = None
+
+        return {
+            "user": {
+                "id": user_id,
+                "name": str(user_row.get("fullname") or ""),
+                "login": str(user_row.get("domainname") or ""),
+            },
+            "items": items,
+            "count": len(items),
+        }
+
     def _create_incident_with_client(
         self,
         client: Any,

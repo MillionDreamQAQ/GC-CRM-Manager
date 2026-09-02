@@ -111,6 +111,13 @@ def create_app(
         except (DataverseError, requests.RequestException, OSError, ValueError) as exc:
             raise _api_error(exc) from exc
 
+    @application.get("/api/incidents")
+    def list_incidents(limit: int = Query(500, ge=1, le=500)) -> dict:
+        try:
+            return service.list_incidents(limit)
+        except (DataverseError, requests.RequestException, OSError, ValueError) as exc:
+            raise _api_error(exc) from exc
+
     @application.post("/api/parse-paste")
     def parse_paste(values: PasteInput) -> dict:
         if len(values.text) > 2_000_000:

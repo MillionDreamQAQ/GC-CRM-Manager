@@ -1,7 +1,16 @@
 import { pinyin } from "pinyin-pro";
 
 
-const SEARCH_FIELDS = ["name", "customer", "opportunity", "opportunity_status", "owner"];
+const SEARCH_FIELDS = [
+  "name",
+  "customer",
+  "opportunity",
+  "opportunity_status",
+  "owner",
+  "subject",
+  "description",
+  "source_name",
+];
 const searchIndexCache = new WeakMap();
 
 

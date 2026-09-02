@@ -33,6 +33,9 @@ export const crmApi = {
   createIncident(values) {
     return request("/api/incidents", { method: "POST", body: JSON.stringify(values) });
   },
+  incidents(limit = 500) {
+    return request(`/api/incidents?limit=${encodeURIComponent(limit)}`);
+  },
   parsePaste(text) {
     return request("/api/parse-paste", { method: "POST", body: JSON.stringify({ text }) });
   },

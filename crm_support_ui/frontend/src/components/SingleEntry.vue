@@ -5,6 +5,7 @@ import { Link, Refresh, Search } from "@element-plus/icons-vue";
 import SourceBadge from "./SourceBadge.vue";
 import OpportunityStatus from "./OpportunityStatus.vue";
 import AccountEntitlement from "./AccountEntitlement.vue";
+import HistoryCases from "./HistoryCases.vue";
 import { crmApi, localDateValue, sourceKey, sourceName, sourceSubtitle } from "@/lib/crm";
 import { matchesSourceQuery } from "@/lib/source-search";
 
@@ -25,6 +26,7 @@ const confirmVisible = ref(false);
 const creating = ref(false);
 const pending = ref(null);
 const form = reactive({ subject: "", description: "", actual_end: localDateValue() });
+const historyRefreshKey = ref(0);
 
 const filteredSources = computed(() => {
   return props.sources.filter((item) => {
@@ -77,6 +79,7 @@ async function createIncident() {
     form.subject = "";
     form.description = "";
     form.actual_end = localDateValue();
+    historyRefreshKey.value += 1;
     nextTick(() => subjectInput.value?.focus());
   } catch (error) {
     ElMessage.error({ message: `创建失败：${error.message}`, duration: 8000, showClose: true });
@@ -87,7 +90,8 @@ async function createIncident() {
 </script>
 
 <template>
-  <main class="single-workspace">
+  <div class="single-view">
+    <main class="single-workspace">
     <section class="source-panel" aria-labelledby="source-heading">
       <div class="panel-heading">
         <div><span class="step">1</span><h2 id="source-heading">选择客户或商机</h2></div>
@@ -224,7 +228,9 @@ async function createIncident() {
           >核对并创建</el-button>
       </el-form>
     </section>
-  </main>
+    </main>
+    <HistoryCases :selected="selected" :refresh-key="historyRefreshKey" />
+  </div>
 
   <el-dialog v-model="confirmVisible" title="确认创建技术支持案例？" width="min(560px, calc(100% - 30px))">
     <el-descriptions v-if="pending" :column="1" border>
