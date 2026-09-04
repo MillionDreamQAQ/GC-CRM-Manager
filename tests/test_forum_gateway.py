@@ -105,6 +105,8 @@ class ForumGatewayTests(unittest.TestCase):
         self.assertEqual(response.headers.get("cache-control"), "no-store")
         self.assertNotIn("cookie", response.json())
         self.assertEqual(send.call_args.kwargs["cookie"], "sid=secret")
+        self.assertEqual(send.call_args.kwargs["title"], "主题")
+        self.assertEqual(send.call_args.kwargs["content"], "正文")
 
     def test_forum_endpoint_rejects_overlong_title_before_network_call(self) -> None:
         with patch("crm_support_ui.app.send_forum_post") as send:

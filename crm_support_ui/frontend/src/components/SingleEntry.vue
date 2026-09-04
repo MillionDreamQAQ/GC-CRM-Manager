@@ -29,6 +29,10 @@ const createStage = ref("");
 const pending = ref(null);
 const forumCookieInput = ref(null);
 const forumCookie = ref("");
+const forumTitleInput = ref(null);
+const forumContentInput = ref(null);
+const forumTitle = ref("");
+const forumContent = ref("");
 const form = reactive({
   subject: "",
   description: "",
@@ -55,7 +59,14 @@ watch(
 watch(
   () => form.create_forum_post,
   (enabled) => {
-    if (!enabled) forumCookie.value = "";
+    if (!enabled) {
+      forumCookie.value = "";
+      forumTitle.value = "";
+      forumContent.value = "";
+      return;
+    }
+    if (!forumTitle.value.trim()) forumTitle.value = form.subject.trim();
+    if (!forumContent.value.trim()) forumContent.value = form.description.trim();
   },
 );
 
@@ -67,24 +78,41 @@ function selectSource(source) {
 function openConfirmation() {
   if (!selected.value || !form.subject.trim() || !form.actual_end) return;
   const subject = form.subject.trim();
-  if (form.create_forum_post && Array.from(subject).length > FORUM_TITLE_MAX_LENGTH) {
-    ElMessage.warning(`论坛帖子标题不能超过 ${FORUM_TITLE_MAX_LENGTH} 个字符，请缩短主题`);
-    return;
-  }
-  if (form.create_forum_post && !forumCookie.value.trim()) {
-    ElMessage.warning("请先输入 GCDN 论坛 Cookie");
-    nextTick(() => forumCookieInput.value?.focus());
-    return;
-  }
-  if (form.create_forum_post && /[\r\n]/.test(forumCookie.value)) {
-    ElMessage.warning("Cookie 必须是一行请求头内容，请删除换行后重试");
-    nextTick(() => forumCookieInput.value?.focus());
-    return;
-  }
-  if (form.create_forum_post && forumCookie.value.length > 16000) {
-    ElMessage.warning("Cookie 内容过长，请确认只粘贴 Cookie 请求头");
-    nextTick(() => forumCookieInput.value?.focus());
-    return;
+  let forumTitleValue = "";
+  let forumContentValue = "";
+  if (form.create_forum_post) {
+    forumTitleValue = forumTitle.value.trim();
+    forumContentValue = forumContent.value.trim();
+    if (!forumTitleValue) {
+      ElMessage.warning("请填写论坛帖子主题");
+      nextTick(() => forumTitleInput.value?.focus());
+      return;
+    }
+    if (Array.from(forumTitleValue).length > FORUM_TITLE_MAX_LENGTH) {
+      ElMessage.warning(`论坛帖子主题不能超过 ${FORUM_TITLE_MAX_LENGTH} 个字符，请缩短主题`);
+      nextTick(() => forumTitleInput.value?.focus());
+      return;
+    }
+    if (!forumContentValue) {
+      ElMessage.warning("请填写论坛帖子内容");
+      nextTick(() => forumContentInput.value?.focus());
+      return;
+    }
+    if (!forumCookie.value.trim()) {
+      ElMessage.warning("请先输入 GCDN 论坛 Cookie");
+      nextTick(() => forumCookieInput.value?.focus());
+      return;
+    }
+    if (/[\r\n]/.test(forumCookie.value)) {
+      ElMessage.warning("Cookie 必须是一行请求头内容，请删除换行后重试");
+      nextTick(() => forumCookieInput.value?.focus());
+      return;
+    }
+    if (forumCookie.value.length > 16000) {
+      ElMessage.warning("Cookie 内容过长，请确认只粘贴 Cookie 请求头");
+      nextTick(() => forumCookieInput.value?.focus());
+      return;
+    }
   }
   pending.value = {
     source_entity: selected.value.entity,
@@ -93,6 +121,8 @@ function openConfirmation() {
     description: form.description.trim(),
     actual_end: form.actual_end,
     create_forum_post: form.create_forum_post,
+    forum_title: forumTitleValue,
+    forum_content: forumContentValue,
   };
   confirmVisible.value = true;
 }
@@ -104,8 +134,12 @@ async function createIncident() {
   const values = { ...pending.value };
   const forumRequested = Boolean(values.create_forum_post);
   const forumCookieValue = forumRequested ? forumCookie.value.trim() : "";
+  const forumTitleValue = forumRequested ? String(values.forum_title || "").trim() : "";
+  const forumContentValue = forumRequested ? String(values.forum_content || "").trim() : "";
   const forumSourceName = sourceName(selected.value);
   delete values.create_forum_post;
+  delete values.forum_title;
+  delete values.forum_content;
 
   try {
     const result = await crmApi.createIncident(values);
@@ -116,9 +150,9 @@ async function createIncident() {
       try {
         forumResult = await crmApi.createForumPost({
           cookie: forumCookieValue,
-          title: values.subject,
+          title: forumTitleValue,
           content: buildForumContent({
-            description: values.description,
+            description: forumContentValue,
             sourceName: forumSourceName,
             actualEnd: values.actual_end,
             crmUrl: result.url,
@@ -175,6 +209,8 @@ async function createIncident() {
     form.actual_end = localDateValue();
     form.create_forum_post = false;
     forumCookie.value = "";
+    forumTitle.value = "";
+    forumContent.value = "";
     historyRefreshKey.value += 1;
     nextTick(() => subjectInput.value?.focus());
   } catch (error) {
@@ -320,7 +356,7 @@ async function createIncident() {
           </el-form-item>
           <el-form-item class="forum-option-item">
             <el-checkbox v-model="form.create_forum_post">同时创建对应论坛帖子</el-checkbox>
-            <span class="forum-option-hint">使用下方 Cookie 直发到 GCDN（当前按原表单悬赏 1 金币）；Cookie 只在本页内存中保留</span>
+            <span class="forum-option-hint">使用下方 Cookie 直发到 GCDN；论坛字段默认带入 CRM 内容，可单独修改</span>
           </el-form-item>
           <el-form-item v-if="form.create_forum_post" label="GCDN 论坛 Cookie" required class="forum-cookie-item">
             <el-input
@@ -332,6 +368,27 @@ async function createIncident() {
               autocomplete="new-password"
               maxlength="16000"
               placeholder="粘贴浏览器请求头中的 Cookie 值"
+            />
+          </el-form-item>
+          <el-form-item v-if="form.create_forum_post" label="论坛帖子主题" required class="forum-title-item">
+            <el-input
+              ref="forumTitleInput"
+              v-model="forumTitle"
+              maxlength="80"
+              show-word-limit
+              placeholder="填写论坛帖子主题"
+            />
+          </el-form-item>
+          <el-form-item v-if="form.create_forum_post" label="论坛帖子内容" required class="forum-content-item">
+            <el-input
+              ref="forumContentInput"
+              v-model="forumContent"
+              type="textarea"
+              :rows="7"
+              resize="vertical"
+              maxlength="200000"
+              show-word-limit
+              placeholder="填写论坛帖子内容"
             />
           </el-form-item>
           <el-button
@@ -353,6 +410,10 @@ async function createIncident() {
       <el-descriptions-item label="实际结束时间">{{ pending.actual_end }}</el-descriptions-item>
       <el-descriptions-item label="说明"><span class="pre-wrap">{{ pending.description || "（未填写）" }}</span></el-descriptions-item>
       <el-descriptions-item label="论坛帖子">{{ pending.create_forum_post ? "创建（提交后由论坛返回结果）" : "不创建" }}</el-descriptions-item>
+      <template v-if="pending.create_forum_post">
+        <el-descriptions-item label="论坛主题">{{ pending.forum_title }}</el-descriptions-item>
+        <el-descriptions-item label="论坛内容"><span class="pre-wrap">{{ pending.forum_content }}</span></el-descriptions-item>
+      </template>
     </el-descriptions>
     <template #footer>
       <el-button @click="confirmVisible = false">返回修改</el-button>
