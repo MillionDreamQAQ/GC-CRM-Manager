@@ -281,10 +281,15 @@ async function createIncident() {
     form.subject = "";
     form.description = "";
     form.actual_end = localDateValue();
-    form.create_forum_post = false;
-    forumCookie.value = "";
-    forumTitle.value = "";
-    forumContent.value = "";
+    // Keep the forum draft visible after a partial success so the user can
+    // retry posting without losing the supplied cookie or edited content.
+    const keepForumDraft = forumRequested && Boolean(forumError);
+    form.create_forum_post = keepForumDraft;
+    if (!keepForumDraft) {
+      forumCookie.value = "";
+      forumTitle.value = "";
+      forumContent.value = "";
+    }
     historyRefreshKey.value += 1;
     nextTick(() => subjectInput.value?.focus());
   } catch (error) {
