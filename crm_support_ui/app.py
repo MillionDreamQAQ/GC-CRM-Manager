@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -20,6 +20,12 @@ from .dataverse_client import (
 
 from .dataverse_gateway import DataverseGateway
 from .batch_jobs import BatchJobManager, BatchJobStore, parse_excel_tsv
+from .forum_gateway import (
+    MAX_CONTENT_LENGTH,
+    MAX_TITLE_LENGTH,
+    ForumPostError,
+    create_forum_post as send_forum_post,
+)
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -44,6 +50,13 @@ class BatchInput(BaseModel):
 
 class PasteInput(BaseModel):
     text: str
+
+
+class ForumPostInput(BaseModel):
+    cookie: str
+    title: str
+    content: str
+    rewardprice: str = "1"
 
 
 def build_default_gateway() -> DataverseGateway:
@@ -109,6 +122,34 @@ def create_app(
         try:
             return service.create_incident(**values.model_dump())
         except (DataverseError, requests.RequestException, OSError, ValueError) as exc:
+            raise _api_error(exc) from exc
+
+    @application.post("/api/forum-post", status_code=201)
+    def create_forum_post(values: ForumPostInput, response: Response) -> dict:
+        """Submit a GCDN topic using a cookie supplied for this request only."""
+
+        response.headers["Cache-Control"] = "no-store"
+        if not values.cookie.strip():
+            raise HTTPException(status_code=400, detail="论坛 Cookie 不能为空")
+        if not values.title.strip():
+            raise HTTPException(status_code=400, detail="论坛帖子标题不能为空")
+        if len(values.title.strip()) > MAX_TITLE_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"论坛帖子标题不能超过 {MAX_TITLE_LENGTH} 个字符",
+            )
+        if not values.content.strip():
+            raise HTTPException(status_code=400, detail="论坛帖子内容不能为空")
+        if len(values.content) > MAX_CONTENT_LENGTH:
+            raise HTTPException(status_code=400, detail="论坛帖子内容过长")
+        try:
+            return send_forum_post(
+                cookie=values.cookie,
+                title=values.title,
+                content=values.content,
+                rewardprice=values.rewardprice,
+            )
+        except ForumPostError as exc:
             raise _api_error(exc) from exc
 
     @application.get("/api/incidents")

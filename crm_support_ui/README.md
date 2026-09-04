@@ -7,6 +7,7 @@
 - `app.py`：FastAPI 应用与 HTTP 接口
 - `dataverse_client.py`：Azure CLI 令牌、Dataverse HTTP 客户端与日期规范化
 - `dataverse_gateway.py`：客户/商机来源查询、权利聚合、历史案例查询和案例创建
+- `forum_gateway.py`：使用本次请求提供的 GCDN Cookie 创建论坛主题（不保存 Cookie）
 - `batch_jobs.py`：SQLite 批量任务与后台执行
 - `launcher.py`：Windows 本地启动器
 - `frontend/`：Vue 前端源码
@@ -72,6 +73,12 @@ python -m unittest work.test_crm_support_ui
 - `CRM_TENANT_ID`：Microsoft Entra 租户 ID
 - `CRM_AZ_PATH`：Azure CLI 的完整路径
 - `CRM_BATCH_DATABASE`：批量任务 SQLite 文件路径
+
+论坛发帖接口为 `POST /api/forum-post`，只接受单条请求中的 `cookie`、`title`、`content` 和可选 `rewardprice` 字段。它不会读取浏览器 Cookie，也不会把 Cookie 写入服务端存储。
+
+前端默认使用求助中心的 `special=3` 表单，悬赏金币为 1。
+
+前端单条录入勾选论坛选项后会调用该接口；批量录入暂不自动发帖。
 
 未配置时使用当前葡萄城 CRM 环境、租户和项目内 `data/batch_jobs.db`。
 

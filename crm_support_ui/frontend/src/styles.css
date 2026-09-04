@@ -128,9 +128,16 @@ h2 { letter-spacing: 0; }
 .incident-form .el-textarea__inner { min-height: 155px !important; line-height: 1.65; }
 .single-date-field { max-width: 260px; }
 .single-date-field .el-date-editor { width: 100%; }
+.forum-option-item { margin-bottom: 8px; }
+.forum-option-item .el-form-item__content { display: grid; gap: 3px; }
+.forum-option-hint { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.forum-cookie-item { margin-bottom: 16px; }
 .pre-wrap { white-space: pre-wrap; }
 .notification-link { color: var(--accent); font-weight: 700; text-decoration: none; }
 .notification-link:hover { text-decoration: underline; }
+.notification-link + .notification-link { margin-left: 14px; }
+.notification-error { display: block; margin-top: 7px; color: var(--danger); font-size: 12px; }
+.confirm-create-button { min-width: 112px; }
 
 .history-panel { margin-top: 18px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); box-shadow: 0 12px 30px rgb(28 47 38 / 5%); }
 .history-heading { min-height: 72px; padding: 0 22px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }

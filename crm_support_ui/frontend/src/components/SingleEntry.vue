@@ -7,6 +7,7 @@ import OpportunityStatus from "./OpportunityStatus.vue";
 import AccountEntitlement from "./AccountEntitlement.vue";
 import HistoryCases from "./HistoryCases.vue";
 import { crmApi, localDateValue, sourceKey, sourceName, sourceSubtitle } from "@/lib/crm";
+import { buildForumContent, FORUM_TITLE_MAX_LENGTH } from "@/lib/forum";
 import { matchesSourceQuery } from "@/lib/source-search";
 
 const props = defineProps({
@@ -24,8 +25,16 @@ const selected = ref(null);
 const subjectInput = ref(null);
 const confirmVisible = ref(false);
 const creating = ref(false);
+const createStage = ref("");
 const pending = ref(null);
-const form = reactive({ subject: "", description: "", actual_end: localDateValue() });
+const forumCookieInput = ref(null);
+const forumCookie = ref("");
+const form = reactive({
+  subject: "",
+  description: "",
+  actual_end: localDateValue(),
+  create_forum_post: false,
+});
 const historyRefreshKey = ref(0);
 
 const filteredSources = computed(() => {
@@ -43,6 +52,13 @@ watch(
   },
 );
 
+watch(
+  () => form.create_forum_post,
+  (enabled) => {
+    if (!enabled) forumCookie.value = "";
+  },
+);
+
 function selectSource(source) {
   selected.value = source;
   nextTick(() => subjectInput.value?.focus());
@@ -50,12 +66,33 @@ function selectSource(source) {
 
 function openConfirmation() {
   if (!selected.value || !form.subject.trim() || !form.actual_end) return;
+  const subject = form.subject.trim();
+  if (form.create_forum_post && Array.from(subject).length > FORUM_TITLE_MAX_LENGTH) {
+    ElMessage.warning(`论坛帖子标题不能超过 ${FORUM_TITLE_MAX_LENGTH} 个字符，请缩短主题`);
+    return;
+  }
+  if (form.create_forum_post && !forumCookie.value.trim()) {
+    ElMessage.warning("请先输入 GCDN 论坛 Cookie");
+    nextTick(() => forumCookieInput.value?.focus());
+    return;
+  }
+  if (form.create_forum_post && /[\r\n]/.test(forumCookie.value)) {
+    ElMessage.warning("Cookie 必须是一行请求头内容，请删除换行后重试");
+    nextTick(() => forumCookieInput.value?.focus());
+    return;
+  }
+  if (form.create_forum_post && forumCookie.value.length > 16000) {
+    ElMessage.warning("Cookie 内容过长，请确认只粘贴 Cookie 请求头");
+    nextTick(() => forumCookieInput.value?.focus());
+    return;
+  }
   pending.value = {
     source_entity: selected.value.entity,
     source_id: selected.value.id,
-    subject: form.subject.trim(),
+    subject,
     description: form.description.trim(),
     actual_end: form.actual_end,
+    create_forum_post: form.create_forum_post,
   };
   confirmVisible.value = true;
 }
@@ -63,28 +100,88 @@ function openConfirmation() {
 async function createIncident() {
   if (!pending.value || creating.value) return;
   creating.value = true;
+  createStage.value = "正在创建 CRM 案例…";
+  const values = { ...pending.value };
+  const forumRequested = Boolean(values.create_forum_post);
+  const forumCookieValue = forumRequested ? forumCookie.value.trim() : "";
+  const forumSourceName = sourceName(selected.value);
+  delete values.create_forum_post;
+
   try {
-    const result = await crmApi.createIncident(pending.value);
+    const result = await crmApi.createIncident(values);
+    let forumResult = null;
+    let forumError = null;
+    if (forumRequested) {
+      createStage.value = "CRM 案例已创建，正在发布论坛帖子…";
+      try {
+        forumResult = await crmApi.createForumPost({
+          cookie: forumCookieValue,
+          title: values.subject,
+          content: buildForumContent({
+            description: values.description,
+            sourceName: forumSourceName,
+            actualEnd: values.actual_end,
+            crmUrl: result.url,
+          }),
+        });
+      } catch (error) {
+        forumError = error;
+      }
+    }
+
     confirmVisible.value = false;
-    ElNotification({
-      title: "技术支持案例已创建",
-      type: "success",
-      duration: 8000,
-      message: h(
+    const notificationLinks = [
+      h(
         "a",
         { href: result.url, target: "_blank", rel: "noopener noreferrer", class: "notification-link" },
         "在 CRM 中打开",
       ),
-    });
+    ];
+    if (forumResult?.url) {
+      notificationLinks.push(
+        h(
+          "a",
+          {
+            href: forumResult.url,
+            target: "_blank",
+            rel: "noopener noreferrer",
+            class: "notification-link",
+          },
+          "打开论坛帖子",
+        ),
+      );
+    }
+    if (forumError) {
+      notificationLinks.push(
+        h("span", { class: "notification-error" }, `论坛发帖失败：${forumError.message}`),
+      );
+    }
+    const notification = {
+      title: "技术支持案例已创建",
+      type: "success",
+      duration: 8000,
+      message: h("div", notificationLinks),
+    };
+    if (forumError) {
+      notification.title = "CRM 案例已创建，论坛发帖失败";
+      notification.type = "warning";
+      notification.duration = 12000;
+    } else if (forumResult) {
+      notification.title = "案例和论坛帖子已创建";
+    }
+    ElNotification(notification);
     form.subject = "";
     form.description = "";
     form.actual_end = localDateValue();
+    form.create_forum_post = false;
+    forumCookie.value = "";
     historyRefreshKey.value += 1;
     nextTick(() => subjectInput.value?.focus());
   } catch (error) {
     ElMessage.error({ message: `创建失败：${error.message}`, duration: 8000, showClose: true });
   } finally {
     creating.value = false;
+    createStage.value = "";
   }
 }
 </script>
@@ -221,6 +318,22 @@ async function createIncident() {
           <el-form-item label="实际结束时间" required class="single-date-field">
             <el-date-picker v-model="form.actual_end" type="date" value-format="YYYY-MM-DD" />
           </el-form-item>
+          <el-form-item class="forum-option-item">
+            <el-checkbox v-model="form.create_forum_post">同时创建对应论坛帖子</el-checkbox>
+            <span class="forum-option-hint">使用下方 Cookie 直发到 GCDN（当前按原表单悬赏 1 金币）；Cookie 只在本页内存中保留</span>
+          </el-form-item>
+          <el-form-item v-if="form.create_forum_post" label="GCDN 论坛 Cookie" required class="forum-cookie-item">
+            <el-input
+              ref="forumCookieInput"
+              v-model="forumCookie"
+              type="password"
+              show-password
+              clearable
+              autocomplete="new-password"
+              maxlength="16000"
+              placeholder="粘贴浏览器请求头中的 Cookie 值"
+            />
+          </el-form-item>
           <el-button
             native-type="submit"
             type="primary"
@@ -239,10 +352,11 @@ async function createIncident() {
       <el-descriptions-item label="主题">{{ pending.subject }}</el-descriptions-item>
       <el-descriptions-item label="实际结束时间">{{ pending.actual_end }}</el-descriptions-item>
       <el-descriptions-item label="说明"><span class="pre-wrap">{{ pending.description || "（未填写）" }}</span></el-descriptions-item>
+      <el-descriptions-item label="论坛帖子">{{ pending.create_forum_post ? "创建（提交后由论坛返回结果）" : "不创建" }}</el-descriptions-item>
     </el-descriptions>
     <template #footer>
       <el-button @click="confirmVisible = false">返回修改</el-button>
-      <el-button type="primary" :loading="creating" @click="createIncident">确认创建</el-button>
+      <el-button class="confirm-create-button" type="primary" :loading="creating" @click="createIncident">{{ creating ? createStage : "确认创建" }}</el-button>
     </template>
   </el-dialog>
 </template>
