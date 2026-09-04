@@ -132,6 +132,10 @@ h2 { letter-spacing: 0; }
 .forum-option-item .el-form-item__content { display: grid; gap: 3px; }
 .forum-option-hint { color: var(--muted); font-size: 11px; line-height: 1.45; }
 .forum-cookie-item { margin-bottom: 16px; }
+.forum-cookie-item .el-form-item__content { display: grid; gap: 0; }
+.forum-cookie-options { margin-top: 7px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.forum-cookie-options .el-button { margin-left: auto; padding-inline: 0; }
+.forum-cookie-hint { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .forum-title-item, .forum-content-item { margin-bottom: 16px; }
 .form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .form-actions .el-button + .el-button { margin-left: 0; }

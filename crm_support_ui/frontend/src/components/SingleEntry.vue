@@ -1,13 +1,19 @@
 <script setup>
 import { computed, h, nextTick, reactive, ref, watch } from "vue";
 import { ElAutoResizer, ElMessage, ElNotification, FixedSizeList } from "element-plus";
-import { Link, Promotion, Refresh, Search } from "@element-plus/icons-vue";
+import { Delete, Link, Promotion, Refresh, Search } from "@element-plus/icons-vue";
 import SourceBadge from "./SourceBadge.vue";
 import OpportunityStatus from "./OpportunityStatus.vue";
 import AccountEntitlement from "./AccountEntitlement.vue";
 import HistoryCases from "./HistoryCases.vue";
 import { crmApi, localDateValue, sourceKey, sourceName, sourceSubtitle } from "@/lib/crm";
-import { buildForumContent, FORUM_TITLE_MAX_LENGTH } from "@/lib/forum";
+import {
+  buildForumContent,
+  clearStoredForumCookie,
+  FORUM_TITLE_MAX_LENGTH,
+  loadStoredForumCookie,
+  saveStoredForumCookie,
+} from "@/lib/forum";
 import { matchesSourceQuery } from "@/lib/source-search";
 
 const props = defineProps({
@@ -32,7 +38,9 @@ const postingForum = ref(false);
 const forumPostStage = ref("");
 const forumPending = ref(null);
 const forumCookieInput = ref(null);
-const forumCookie = ref("");
+const forumCookie = ref(loadStoredForumCookie());
+const rememberForumCookie = ref(Boolean(forumCookie.value));
+const hasSavedForumCookie = ref(Boolean(forumCookie.value));
 const forumTitleInput = ref(null);
 const forumContentInput = ref(null);
 const forumTitle = ref("");
@@ -69,10 +77,42 @@ watch(
       forumContent.value = "";
       return;
     }
-    if (!forumTitle.value.trim()) forumTitle.value = form.subject.trim();
-    if (!forumContent.value.trim()) forumContent.value = form.description.trim();
+    if (!forumCookie.value.trim()) forumCookie.value = loadStoredForumCookie();
   },
 );
+
+function persistForumCookie(inputValue) {
+  if (!rememberForumCookie.value) return;
+  const rawValue = typeof inputValue === "string" ? inputValue : forumCookie.value;
+  const value = rawValue.trim();
+  if (!value) {
+    clearStoredForumCookie();
+    hasSavedForumCookie.value = false;
+    return;
+  }
+  if (/[\r\n]/.test(value) || value.length > 16000) return;
+  hasSavedForumCookie.value = saveStoredForumCookie(value);
+}
+
+function handleRememberForumCookie() {
+  if (!rememberForumCookie.value) {
+    clearStoredForumCookie();
+    hasSavedForumCookie.value = false;
+    return;
+  }
+  persistForumCookie();
+}
+
+function forgetSavedForumCookie() {
+  clearStoredForumCookie();
+  hasSavedForumCookie.value = false;
+}
+
+function clearSavedForumCookie() {
+  forgetSavedForumCookie();
+  forumCookie.value = "";
+  ElMessage.success("已清除保存的论坛 Cookie");
+}
 
 function selectSource(source) {
   selected.value = source;
@@ -112,6 +152,7 @@ function collectForumInput() {
     nextTick(() => forumCookieInput.value?.focus());
     return null;
   }
+  persistForumCookie();
   return { cookie: forumCookie.value.trim(), title, content };
 }
 
@@ -142,17 +183,13 @@ function openConfirmation() {
 function openForumConfirmation() {
   if (!form.create_forum_post) {
     form.create_forum_post = true;
-    ElMessage.info("请填写论坛 Cookie、主题和内容");
+    ElMessage.info("请确认论坛 Cookie、主题和内容");
     nextTick(() => forumCookieInput.value?.focus());
     return;
   }
   const forumValues = collectForumInput();
   if (!forumValues) return;
-  forumPending.value = {
-    ...forumValues,
-    sourceName: selected.value ? sourceName(selected.value) : "",
-    actualEnd: selected.value ? form.actual_end : "",
-  };
+  forumPending.value = { ...forumValues };
   forumConfirmVisible.value = true;
 }
 
@@ -171,11 +208,7 @@ async function postForumOnly() {
     const result = await crmApi.createForumPost({
       cookie: values.cookie,
       title: values.title,
-      content: buildForumContent({
-        description: values.content,
-        sourceName: values.sourceName,
-        actualEnd: values.actualEnd,
-      }),
+      content: buildForumContent({ description: values.content }),
     });
     forumConfirmVisible.value = false;
     forumPending.value = null;
@@ -210,7 +243,6 @@ async function createIncident() {
   const forumCookieValue = forumRequested ? forumCookie.value.trim() : "";
   const forumTitleValue = forumRequested ? String(values.forum_title || "").trim() : "";
   const forumContentValue = forumRequested ? String(values.forum_content || "").trim() : "";
-  const forumSourceName = sourceName(selected.value);
   delete values.create_forum_post;
   delete values.forum_title;
   delete values.forum_content;
@@ -225,12 +257,7 @@ async function createIncident() {
         forumResult = await crmApi.createForumPost({
           cookie: forumCookieValue,
           title: forumTitleValue,
-          content: buildForumContent({
-            description: forumContentValue,
-            sourceName: forumSourceName,
-            actualEnd: values.actual_end,
-            crmUrl: result.url,
-          }),
+          content: buildForumContent({ description: forumContentValue }),
         });
       } catch (error) {
         forumError = error;
@@ -435,7 +462,7 @@ async function createIncident() {
           </el-form-item>
           <el-form-item class="forum-option-item">
             <el-checkbox v-model="form.create_forum_post">同时创建对应论坛帖子</el-checkbox>
-            <span class="forum-option-hint">使用下方 Cookie 直发到 GCDN；论坛字段默认带入 CRM 内容，可单独修改</span>
+            <span class="forum-option-hint">使用下方 Cookie 直发到 GCDN；论坛主题和内容需独立填写，不会自动带入客户/商机信息</span>
           </el-form-item>
           <el-form-item v-if="form.create_forum_post" label="GCDN 论坛 Cookie" required class="forum-cookie-item">
             <el-input
@@ -447,7 +474,22 @@ async function createIncident() {
               autocomplete="new-password"
               maxlength="16000"
               placeholder="粘贴浏览器请求头中的 Cookie 值"
+              @input="persistForumCookie"
+              @clear="forgetSavedForumCookie"
             />
+            <div class="forum-cookie-options">
+              <el-checkbox v-model="rememberForumCookie" @change="handleRememberForumCookie">
+                记住 Cookie
+              </el-checkbox>
+              <el-button
+                v-if="hasSavedForumCookie"
+                link
+                type="danger"
+                :icon="Delete"
+                @click="clearSavedForumCookie"
+              >清除已保存 Cookie</el-button>
+            </div>
+            <span class="forum-cookie-hint">仅保存在当前浏览器，不会作为服务端数据保存</span>
           </el-form-item>
           <el-form-item v-if="form.create_forum_post" label="论坛帖子主题" required class="forum-title-item">
             <el-input
@@ -516,8 +558,6 @@ async function createIncident() {
     :close-on-press-escape="!postingForum"
   >
     <el-descriptions v-if="forumPending" :column="1" border>
-      <el-descriptions-item v-if="forumPending.sourceName" label="关联对象">{{ forumPending.sourceName }}</el-descriptions-item>
-      <el-descriptions-item v-if="forumPending.actualEnd" label="实际结束时间">{{ forumPending.actualEnd }}</el-descriptions-item>
       <el-descriptions-item label="论坛主题">{{ forumPending.title }}</el-descriptions-item>
       <el-descriptions-item label="论坛内容"><span class="pre-wrap">{{ forumPending.content }}</span></el-descriptions-item>
     </el-descriptions>

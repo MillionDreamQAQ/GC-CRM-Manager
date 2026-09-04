@@ -7,7 +7,7 @@
 - `app.py`：FastAPI 应用与 HTTP 接口
 - `dataverse_client.py`：Azure CLI 令牌、Dataverse HTTP 客户端与日期规范化
 - `dataverse_gateway.py`：客户/商机来源查询、权利聚合、历史案例查询和案例创建
-- `forum_gateway.py`：使用本次请求提供的 GCDN Cookie 创建论坛主题（不保存 Cookie）
+- `forum_gateway.py`：使用本次请求提供的 GCDN Cookie 创建论坛主题（服务端不保存 Cookie）
 - `batch_jobs.py`：SQLite 批量任务与后台执行
 - `launcher.py`：Windows 本地启动器
 - `frontend/`：Vue 前端源码
@@ -74,11 +74,11 @@ python -m unittest work.test_crm_support_ui
 - `CRM_AZ_PATH`：Azure CLI 的完整路径
 - `CRM_BATCH_DATABASE`：批量任务 SQLite 文件路径
 
-论坛发帖接口为 `POST /api/forum-post`，只接受单条请求中的 `cookie`、`title`、`content` 和可选 `rewardprice` 字段。它不会读取浏览器 Cookie，也不会把 Cookie 写入服务端存储。
+论坛发帖接口为 `POST /api/forum-post`，只接受单条请求中的 `cookie`、`title`、`content` 和可选 `rewardprice` 字段。它不会读取浏览器 Cookie，也不会把 Cookie 写入服务端存储。前端可选择将 Cookie 保存在当前浏览器的 `localStorage`，仅用于下次自动回填。
 
 前端默认使用求助中心的 `special=3` 表单，悬赏金币为 1。
 
-前端单条录入勾选论坛选项后会显示独立的论坛主题和内容输入框，并调用该接口；字段默认带入 CRM 案例主题和说明，可单独修改。“单独发帖”按钮只调用论坛接口，不创建 CRM 案例；发帖失败时输入会保留，成功后清空。批量录入暂不自动发帖。
+前端单条录入勾选论坛选项后会显示独立的论坛主题和内容输入框，需要单独填写，不会自动带入 CRM 主题、说明、客户/商机名称、日期或 CRM 链接。论坛请求只发送用户填写的帖子主题和内容。“单独发帖”按钮只调用论坛接口，不创建 CRM 案例；发帖失败时当前表单会保留，成功后只清空当前表单。Cookie 输入旁的“记住 Cookie”选项控制浏览器本地保存，旁边的清除操作可以立即删除已保存值；已保存的 Cookie 不会因成功发帖而清除。批量录入暂不自动发帖。
 
 未配置时使用当前葡萄城 CRM 环境、租户和项目内 `data/batch_jobs.db`。
 
