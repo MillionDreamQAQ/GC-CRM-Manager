@@ -1,7 +1,7 @@
 <script setup>
 import { computed, h, nextTick, reactive, ref, watch } from "vue";
 import { ElAutoResizer, ElMessage, ElNotification, FixedSizeList } from "element-plus";
-import { Link, Refresh, Search } from "@element-plus/icons-vue";
+import { Link, Promotion, Refresh, Search } from "@element-plus/icons-vue";
 import SourceBadge from "./SourceBadge.vue";
 import OpportunityStatus from "./OpportunityStatus.vue";
 import AccountEntitlement from "./AccountEntitlement.vue";
@@ -27,6 +27,10 @@ const confirmVisible = ref(false);
 const creating = ref(false);
 const createStage = ref("");
 const pending = ref(null);
+const forumConfirmVisible = ref(false);
+const postingForum = ref(false);
+const forumPostStage = ref("");
+const forumPending = ref(null);
 const forumCookieInput = ref(null);
 const forumCookie = ref("");
 const forumTitleInput = ref(null);
@@ -75,44 +79,52 @@ function selectSource(source) {
   nextTick(() => subjectInput.value?.focus());
 }
 
+function collectForumInput() {
+  const title = forumTitle.value.trim();
+  const content = forumContent.value.trim();
+  if (!title) {
+    ElMessage.warning("请填写论坛帖子主题");
+    nextTick(() => forumTitleInput.value?.focus());
+    return null;
+  }
+  if (Array.from(title).length > FORUM_TITLE_MAX_LENGTH) {
+    ElMessage.warning(`论坛帖子主题不能超过 ${FORUM_TITLE_MAX_LENGTH} 个字符，请缩短主题`);
+    nextTick(() => forumTitleInput.value?.focus());
+    return null;
+  }
+  if (!content) {
+    ElMessage.warning("请填写论坛帖子内容");
+    nextTick(() => forumContentInput.value?.focus());
+    return null;
+  }
+  if (!forumCookie.value.trim()) {
+    ElMessage.warning("请先输入 GCDN 论坛 Cookie");
+    nextTick(() => forumCookieInput.value?.focus());
+    return null;
+  }
+  if (/[\r\n]/.test(forumCookie.value)) {
+    ElMessage.warning("Cookie 必须是一行请求头内容，请删除换行后重试");
+    nextTick(() => forumCookieInput.value?.focus());
+    return null;
+  }
+  if (forumCookie.value.length > 16000) {
+    ElMessage.warning("Cookie 内容过长，请确认只粘贴 Cookie 请求头");
+    nextTick(() => forumCookieInput.value?.focus());
+    return null;
+  }
+  return { cookie: forumCookie.value.trim(), title, content };
+}
+
 function openConfirmation() {
   if (!selected.value || !form.subject.trim() || !form.actual_end) return;
   const subject = form.subject.trim();
   let forumTitleValue = "";
   let forumContentValue = "";
   if (form.create_forum_post) {
-    forumTitleValue = forumTitle.value.trim();
-    forumContentValue = forumContent.value.trim();
-    if (!forumTitleValue) {
-      ElMessage.warning("请填写论坛帖子主题");
-      nextTick(() => forumTitleInput.value?.focus());
-      return;
-    }
-    if (Array.from(forumTitleValue).length > FORUM_TITLE_MAX_LENGTH) {
-      ElMessage.warning(`论坛帖子主题不能超过 ${FORUM_TITLE_MAX_LENGTH} 个字符，请缩短主题`);
-      nextTick(() => forumTitleInput.value?.focus());
-      return;
-    }
-    if (!forumContentValue) {
-      ElMessage.warning("请填写论坛帖子内容");
-      nextTick(() => forumContentInput.value?.focus());
-      return;
-    }
-    if (!forumCookie.value.trim()) {
-      ElMessage.warning("请先输入 GCDN 论坛 Cookie");
-      nextTick(() => forumCookieInput.value?.focus());
-      return;
-    }
-    if (/[\r\n]/.test(forumCookie.value)) {
-      ElMessage.warning("Cookie 必须是一行请求头内容，请删除换行后重试");
-      nextTick(() => forumCookieInput.value?.focus());
-      return;
-    }
-    if (forumCookie.value.length > 16000) {
-      ElMessage.warning("Cookie 内容过长，请确认只粘贴 Cookie 请求头");
-      nextTick(() => forumCookieInput.value?.focus());
-      return;
-    }
+    const forumValues = collectForumInput();
+    if (!forumValues) return;
+    forumTitleValue = forumValues.title;
+    forumContentValue = forumValues.content;
   }
   pending.value = {
     source_entity: selected.value.entity,
@@ -125,6 +137,68 @@ function openConfirmation() {
     forum_content: forumContentValue,
   };
   confirmVisible.value = true;
+}
+
+function openForumConfirmation() {
+  if (!form.create_forum_post) {
+    form.create_forum_post = true;
+    ElMessage.info("请填写论坛 Cookie、主题和内容");
+    nextTick(() => forumCookieInput.value?.focus());
+    return;
+  }
+  const forumValues = collectForumInput();
+  if (!forumValues) return;
+  forumPending.value = {
+    ...forumValues,
+    sourceName: selected.value ? sourceName(selected.value) : "",
+    actualEnd: selected.value ? form.actual_end : "",
+  };
+  forumConfirmVisible.value = true;
+}
+
+function closeForumConfirmation() {
+  if (postingForum.value) return;
+  forumConfirmVisible.value = false;
+  forumPending.value = null;
+}
+
+async function postForumOnly() {
+  if (!forumPending.value || postingForum.value) return;
+  postingForum.value = true;
+  forumPostStage.value = "正在发布论坛帖子…";
+  const values = forumPending.value;
+  try {
+    const result = await crmApi.createForumPost({
+      cookie: values.cookie,
+      title: values.title,
+      content: buildForumContent({
+        description: values.content,
+        sourceName: values.sourceName,
+        actualEnd: values.actualEnd,
+      }),
+    });
+    forumConfirmVisible.value = false;
+    forumPending.value = null;
+    ElNotification({
+      title: "论坛帖子已创建",
+      type: "success",
+      duration: 8000,
+      message: h(
+        "a",
+        { href: result.url, target: "_blank", rel: "noopener noreferrer", class: "notification-link" },
+        "打开论坛帖子",
+      ),
+    });
+    forumCookie.value = "";
+    forumTitle.value = "";
+    forumContent.value = "";
+    form.create_forum_post = false;
+  } catch (error) {
+    ElMessage.error({ message: `发帖失败：${error.message}`, duration: 8000, showClose: true });
+  } finally {
+    postingForum.value = false;
+    forumPostStage.value = "";
+  }
 }
 
 async function createIncident() {
@@ -336,15 +410,15 @@ async function createIncident() {
         class="incident-form"
         :model="form"
         label-position="top"
-        :disabled="!selected"
         @submit.prevent="openConfirmation"
       >
           <el-form-item label="主题" required>
-            <el-input ref="subjectInput" v-model="form.subject" maxlength="200" placeholder="例如：线下技术交流会" />
+            <el-input ref="subjectInput" v-model="form.subject" :disabled="!selected" maxlength="200" placeholder="例如：线下技术交流会" />
           </el-form-item>
           <el-form-item label="说明">
             <el-input
               v-model="form.description"
+              :disabled="!selected"
               type="textarea"
               :rows="7"
               resize="vertical"
@@ -352,7 +426,7 @@ async function createIncident() {
             />
           </el-form-item>
           <el-form-item label="实际结束时间" required class="single-date-field">
-            <el-date-picker v-model="form.actual_end" type="date" value-format="YYYY-MM-DD" />
+            <el-date-picker v-model="form.actual_end" :disabled="!selected" type="date" value-format="YYYY-MM-DD" />
           </el-form-item>
           <el-form-item class="forum-option-item">
             <el-checkbox v-model="form.create_forum_post">同时创建对应论坛帖子</el-checkbox>
@@ -391,11 +465,19 @@ async function createIncident() {
               placeholder="填写论坛帖子内容"
             />
           </el-form-item>
-          <el-button
-            native-type="submit"
-            type="primary"
-            :disabled="!form.subject.trim() || !form.actual_end"
-          >核对并创建</el-button>
+          <div class="form-actions">
+            <el-button
+              native-type="submit"
+              type="primary"
+              :disabled="!selected || !form.subject.trim() || !form.actual_end"
+            >核对并创建</el-button>
+            <el-button
+              native-type="button"
+              :icon="Promotion"
+              :loading="postingForum"
+              @click="openForumConfirmation"
+            >单独发帖</el-button>
+          </div>
       </el-form>
     </section>
     </main>
@@ -418,6 +500,25 @@ async function createIncident() {
     <template #footer>
       <el-button @click="confirmVisible = false">返回修改</el-button>
       <el-button class="confirm-create-button" type="primary" :loading="creating" @click="createIncident">{{ creating ? createStage : "确认创建" }}</el-button>
+    </template>
+  </el-dialog>
+
+  <el-dialog
+    v-model="forumConfirmVisible"
+    title="确认单独发布论坛帖子？"
+    width="min(560px, calc(100% - 30px))"
+    :close-on-click-modal="!postingForum"
+    :close-on-press-escape="!postingForum"
+  >
+    <el-descriptions v-if="forumPending" :column="1" border>
+      <el-descriptions-item v-if="forumPending.sourceName" label="关联对象">{{ forumPending.sourceName }}</el-descriptions-item>
+      <el-descriptions-item v-if="forumPending.actualEnd" label="实际结束时间">{{ forumPending.actualEnd }}</el-descriptions-item>
+      <el-descriptions-item label="论坛主题">{{ forumPending.title }}</el-descriptions-item>
+      <el-descriptions-item label="论坛内容"><span class="pre-wrap">{{ forumPending.content }}</span></el-descriptions-item>
+    </el-descriptions>
+    <template #footer>
+      <el-button :disabled="postingForum" @click="closeForumConfirmation">返回修改</el-button>
+      <el-button type="primary" :loading="postingForum" @click="postForumOnly">{{ postingForum ? forumPostStage : "确认发帖" }}</el-button>
     </template>
   </el-dialog>
 </template>

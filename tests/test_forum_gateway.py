@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from requests.cookies import RequestsCookieJar
 
 from crm_support_ui.app import create_app
-from crm_support_ui.forum_gateway import ForumPostError, create_forum_post
+from crm_support_ui.forum_gateway import ForumPostError, _decode_page, create_forum_post
 
 
 FORM_HTML = """
@@ -24,27 +24,45 @@ FORM_HTML = """
 </body></html>
 """
 
+FORM_HTML_WITH_QUERY_FORMHASH = FORM_HTML.replace(
+    'name="formhash" value="abc123"',
+    'name="formhash" value=""',
+).replace(
+    "</body>",
+    '<a href="member.php?mod=logging&amp;action=logout&amp;formhash=c02cf2de">退出</a></body>',
+)
+
+FORM_HTML_WITH_EXTERNAL_FORMHASH = FORM_HTML.replace(
+    'name="formhash" value="abc123"',
+    'name="formhash" value=""',
+).replace(
+    "</body>",
+    '<a href="https://example.invalid/?formhash=not-the-forum-token">外部链接</a></body>',
+)
+
 
 class FakeResponse:
-    def __init__(self, body: str, url: str) -> None:
+    def __init__(self, body: str, url: str, encoding: str | None = None) -> None:
         self.content = body.encode("gbk")
         self.url = url
+        self.encoding = encoding
 
     def raise_for_status(self) -> None:
         return None
 
 
 class FakeSession:
-    def __init__(self) -> None:
+    def __init__(self, html: str = FORM_HTML) -> None:
         self.headers = {}
         self.cookies = RequestsCookieJar()
+        self.html = html
         self.posted = None
         self.closed = False
 
     def get(self, url, timeout):
         self.get_url = url
         self.get_timeout = timeout
-        return FakeResponse(FORM_HTML, url)
+        return FakeResponse(self.html, url)
 
     def post(self, url, data, headers, timeout, allow_redirects):
         self.posted = (url, data, headers, timeout, allow_redirects)
@@ -82,6 +100,32 @@ class ForumGatewayTests(unittest.TestCase):
         self.assertEqual(fields["typeid"], ["286"])
         self.assertEqual(fields["special"], ["3"])
         self.assertEqual(fields["topicsubmit"], ["true"])
+
+    def test_extracts_formhash_from_an_unquoted_query_parameter(self) -> None:
+        session = FakeSession(FORM_HTML_WITH_QUERY_FORMHASH)
+        with patch("crm_support_ui.forum_gateway.requests.Session", return_value=session):
+            result = create_forum_post(
+                cookie="sid=abc",
+                title="中文主题",
+                content="正文",
+            )
+
+        self.assertIn("tid=123", result["url"])
+        fields = parse_qs(session.posted[1].decode("ascii"), encoding="gbk")
+        self.assertEqual(fields["formhash"], ["c02cf2de"])
+
+    def test_decodes_utf8_response_without_silent_gbk_corruption(self) -> None:
+        response = FakeResponse("占位", "https://gcdn.grapecity.com.cn/")
+        response.content = "中文响应".encode("utf-8")
+        self.assertEqual(_decode_page(response), "中文响应")
+
+    def test_does_not_take_formhash_from_an_external_link(self) -> None:
+        session = FakeSession(FORM_HTML_WITH_EXTERNAL_FORMHASH)
+        with patch("crm_support_ui.forum_gateway.requests.Session", return_value=session):
+            with self.assertRaises(ForumPostError):
+                create_forum_post(cookie="sid=abc", title="主题", content="正文")
+
+        self.assertIsNone(session.posted)
 
     def test_rejects_empty_cookie_before_network_call(self) -> None:
         with self.assertRaises(ForumPostError):

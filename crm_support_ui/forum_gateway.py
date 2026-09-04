@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import re
 import time
+from html import unescape
 from http.cookies import SimpleCookie
 from typing import Iterable
-from urllib.parse import quote_plus, urljoin
+from urllib.parse import parse_qs, quote_plus, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -57,11 +58,44 @@ def _load_cookie_jar(raw_cookie: str) -> requests.cookies.RequestsCookieJar:
 
 
 def _decode_page(response: requests.Response) -> str:
-    # The forum's legacy form declares GBK even when the HTTP header is vague.
-    try:
-        return response.content.decode("gbk")
-    except UnicodeDecodeError:
-        return response.content.decode("utf-8", errors="replace")
+    content = bytes(response.content)
+    if content.startswith(b"\xef\xbb\xbf"):
+        return content.decode("utf-8-sig")
+
+    candidates: list[str] = []
+    declared = str(getattr(response, "encoding", "") or "").strip()
+    if declared and declared.lower() not in {"iso-8859-1", "latin-1", "ascii"}:
+        candidates.append(declared)
+
+    head = content[:8192].decode("ascii", errors="ignore")
+    meta_match = re.search(
+        r"<meta[^>]+charset\s*=\s*[\"']?\s*([a-z0-9._-]+)",
+        head,
+        flags=re.IGNORECASE,
+    )
+    if not meta_match:
+        meta_match = re.search(
+            r"<meta[^>]+content\s*=\s*[\"'][^\"']*charset\s*=\s*([a-z0-9._-]+)",
+            head,
+            flags=re.IGNORECASE,
+        )
+    if meta_match:
+        candidates.append(meta_match.group(1))
+
+    # Prefer UTF-8 for modern responses, then fall back to the forum's legacy
+    # GBK encoding when no declaration is available.
+    candidates.extend(("utf-8", "gbk"))
+    seen: set[str] = set()
+    for encoding in candidates:
+        normalized = encoding.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            return content.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return content.decode("utf-8", errors="replace")
 
 
 def _selected_option_value(element) -> str:
@@ -123,12 +157,39 @@ def _extract_formhash(html: str, fields: Iterable[tuple[str, str]]) -> str:
     formhash = _field_value(fields, "formhash").strip()
     if formhash:
         return formhash
+
+    # Some forum responses leave the hidden input empty and expose the token
+    # only in a same-domain logout/link URL. Parse attributes so an unrelated
+    # external URL or page text cannot supply the token accidentally.
+    soup = BeautifulSoup(html, "html.parser")
+    expected_host = urlparse(BASE_URL).netloc.lower()
+    for element in soup.select("[href], [action]"):
+        for attribute in ("href", "action"):
+            raw_url = element.get(attribute)
+            if not raw_url:
+                continue
+            parsed_url = urlparse(urljoin(BASE_URL, unescape(str(raw_url))))
+            if parsed_url.netloc.lower() != expected_host:
+                continue
+            query = parse_qs(parsed_url.query, keep_blank_values=True)
+            for key, values in query.items():
+                if key.lower() != "formhash" or not values:
+                    continue
+                candidate = values[0].strip()
+                if re.fullmatch(r"[0-9a-z]+", candidate, flags=re.IGNORECASE):
+                    return candidate
+
+    # A token assigned by page JavaScript is the remaining supported form.
+    # Restrict this fallback to script bodies so query parameters from an
+    # unrelated external link cannot be mistaken for the forum token.
+    script_text = "\n".join(script.get_text() for script in soup.find_all("script"))
     patterns = (
         r"\bFORMHASH\b\s*[=:]\s*['\"]([0-9a-z]+)['\"]",
         r"\bformhash\b\s*[=:]\s*['\"]([0-9a-z]+)['\"]",
+        r"\bformhash\b\s*[=:]\s*([0-9a-z]+)(?:[^0-9a-z]|$)",
     )
     for pattern in patterns:
-        match = re.search(pattern, html, flags=re.IGNORECASE)
+        match = re.search(pattern, script_text, flags=re.IGNORECASE)
         if match:
             return match.group(1)
     return ""
